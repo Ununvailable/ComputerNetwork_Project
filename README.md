@@ -7,5 +7,5 @@ Project requirements:
 
 Reference:
 1. ARQ Stop & Wait (geek for geek): https://www.geeksforgeeks.org/stop-and-wait-arq/
-2. ARQ Stop & Wait (wikipedia)https://en.wikipedia.org/wiki/Stop-and-wait_ARQ
+2. ARQ Stop & Wait (wikipedia): https://en.wikipedia.org/wiki/Stop-and-wait_ARQ
  
