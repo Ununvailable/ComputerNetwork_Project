@@ -1,51 +1,70 @@
 import socket
 
+IP = socket.gethostbyname(socket.gethostname())
+PORT = 4455
+ADDR = (IP, PORT)
+SIZE = 1027
+FORMAT = "utf-8"
+
 
 def server():
-    host = '127.0.0.1'
-    port = 5000
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.bind(ADDR)
+    server.listen()
+    print("[+] Listening...")
 
-    # Create a socket object
-    server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    conn, addr = server.accept()
+    print(f"[+] Client connected from {addr[0]}:{addr[1]}")
 
-    # Bind the socket to a specific address and port
-    server_socket.bind((host, port))
+    # Receive filename and filesize
+    data = conn.recv(SIZE).decode(FORMAT)
+    filename, filesize = data.split("_")
+    filesize = int(filesize)
 
-    print('Server listening on {}:{}'.format(host, port))
+    print("[+] Filename and filesize received from the client.")
+    conn.send("Filename and filesize received".encode(FORMAT))
 
-    expected_sequence_number = 0
+    # Receive data packets and write to file
+    packet_seq = 0  # Number of the current packet
+    with open(f"recv_{filename}", "wb") as f:
+        while True:
+            data = conn.recv(SIZE)
+            if not data:
+                break
 
-    while True:
-        # Receive data from the client
-        data, client_address = server_socket.recvfrom(1024)
-        data = data.decode('utf-8')
+            # Extract packet sequence number from first 3 bits
+            packet_num = int.from_bytes(data[:1], byteorder="big")
 
-        # Extract the header bits (S, N, P)
-        s = int(data[0])
-        n = int(data[1])
-        p = int(data[2])
+            # Extract the error of byte 5
+            pdf_value = int.from_bytes(data[2:3], byteorder="big")
+            pdf_value = int(pdf_value/100)
+            if pdf_value > 0.35:
+                error = 1
+            else:
+                error = 0
+            # Check packet sequence number
+            if packet_num != packet_seq or error == 1:
+                print(f"Packet {packet_seq} sent is failed.. Resending")
+                expected_packet = str(packet_seq)
+                conn.send(expected_packet.encode(FORMAT))
+                continue
 
-        if s == expected_sequence_number and p == 0:
-            # Packet is in order, send ACK
-            ack = str(expected_sequence_number) + str(0) + str(0)  # S=expected_sequence_number, N=0, P=0
-            server_socket.sendto(ack.encode('utf-8'), client_address)
-            print('Received packet {} from client. Sent ACK {}'.format(expected_sequence_number, ack))
+            # Update packet sequence number
+            if packet_seq <7:
+                packet_seq += 1
+            else:
+                packet_seq=0
 
-            expected_sequence_number = 1 - expected_sequence_number  # Flip the sequence number
+            # Write data to file
+            f.write(data[3:])
 
-        elif p == 1:
-            # Packet is corrupted, request retransmission
-            ack = str(1 - expected_sequence_number) + str(1) + str(0)  # S=previous_sequence_number, N=1, P=0
-            server_socket.sendto(ack.encode('utf-8'), client_address)
-            print('Received corrupted packet. Sent ACK {}'.format(ack))
+            # Send confirmation message
+            print(f"Packet {packet_num} sent is succesful")
+            conn.send("Data received.".encode(FORMAT))
 
-        elif s == expected_sequence_number and p == 2:
-            # End of transmission, break the loop
-            print('End of transmission. Exiting...')
-            break
+    print("File is sent successfully")
+    conn.close()
+    server.close()
 
-    server_socket.close()
-
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     server()
