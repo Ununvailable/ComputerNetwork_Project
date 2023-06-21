@@ -1,56 +1,68 @@
+import os
 import socket
+from random import randrange
+import numpy as np
+from scipy.stats import norm
+
+IP = socket.gethostbyname(socket.gethostname())
+PORT = 4455
+ADDR = (IP, PORT)
+SIZE = 1029
+FORMAT = "utf-8"
+FILENAME = input("File name need to be sent is : ")
+FILESIZE = os.path.getsize(FILENAME)
+
+# Calcualte pdf by normal distribution
+MU = 0.1
+SIGMA = 0.05
 
 
 def client():
-    host = '127.0.0.1'
-    port = 5000
+    client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    client.connect(ADDR)
 
-    # Create a socket object
-    client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    # Send filename and filesize to server
+    data = f"{FILENAME}_{FILESIZE}"
+    client.send(data.encode(FORMAT))
+    msg = client.recv(SIZE).decode(FORMAT)
+    print(f"SERVER: {msg}")
 
-    # Set a timeout value for the socket
-    client_socket.settimeout(1)
+    with open(FILENAME, "rb") as f:
+        packet_seq = 0  # packet sequence number
+        while True:
+            data = f.read(SIZE - 5)  # read a chunk of data, leave space for 3-byte sequence number
+            if not data:  # the transmission is complete
+                break
 
-    sequence_number = 0
-    packet_number = 0
+            random_val = np.random.randn()
+            pdf_value = norm.pdf(random_val, 0.2, 1)
 
-    while True:
-        # Create the packet with header bits (S, N, P)
-        packet = str(sequence_number) + str(packet_number) + '0'  # Assuming all packets are valid
+            pdf_value = int(pdf_value * 100)
+            # prepend 3-byte sequence number to data
+            packet = (packet_seq + randrange(0, 2)).to_bytes(3, byteorder="big") + b"\x00" + pdf_value.to_bytes(1, byteorder="big") + data
 
-        # Send the packet to the server
-        client_socket.sendto(packet.encode('utf-8'), (host, port))
-        print('Sent packet {} to server'.format(packet_number))
+            # send packet to server and wait for confirmation
+            while True:
+                client.send(packet)
+                msg = client.recv(SIZE).decode(FORMAT)
+                if msg == "Data received.":
+                    print(f"Packet {packet_seq} sent successfully.")
+                    break
+                else:
+                    expected_seq = int(msg.split()[0])
+                    print(f"Packet {packet_seq} fails to send. Resending...")
+                    packet = expected_seq.to_bytes(3,
+                                                   byteorder="big") + b"\x00\x00" + data  # prepend 3-byte sequence number to data
 
-        try:
-            # Wait for the ACK from the server
-            ack, server_address = client_socket.recvfrom(1024)
-            ack = ack.decode('utf-8')
+            # Update packet sequence number
+            # if packet_seq <7:
+            packet_seq += 1
+            # else:
+            # packet_seq=0
 
-            # Extract the header bits (S, N, P) from the ACK
-            s = int(ack[0])
-            n = int(ack[1])
-            p = int(ack[2])
-
-            if s == sequence_number and n == 0 and p == 0:
-                # ACK received for the current packet, move to the next sequence number and packet
-                sequence_number = 1 - sequence_number
-                packet_number += 1
-            elif n == 1 and p == 0:
-                # ACK received for the previous packet, retransmit the current packet
-                print('Received ACK for the previous packet. Retransmitting packet {}'.format(packet_number))
-
-        except socket.timeout:
-            # Timeout occurred, retransmit the current packet
-            print('Timeout occurred. Retransmitting packet {}'.format(packet_number))
-
-    # Send the end of transmission packet
-    packet = str(sequence_number) + str(packet_number) + '2'
-    client_socket.sendto(packet.encode('utf-8'), (host, port))
-    print('Sent end of transmission packet {}'.format(packet_number))
-
-    client_socket.close()
+    print("File sent successfully.")
+    client.close()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     client()
